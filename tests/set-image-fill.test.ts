@@ -150,6 +150,16 @@ describe('figma_set_image_fill', () => {
 			expect(typeof validParams.filePath).toBe('string');
 		});
 
+		it('should not expose legacy base64 image parameters', () => {
+			const schemaKeys = ['nodeIds', 'filePath', 'scaleMode'];
+
+			expect(schemaKeys).not.toContain('imageData');
+			expect(schemaKeys).not.toContain('base64');
+			expect(schemaKeys).not.toContain('dataUrl');
+			expect(schemaKeys).not.toContain('dataURL');
+			expect(schemaKeys).not.toContain('bytes');
+		});
+
 		it('should accept valid scaleMode values', () => {
 			const validModes = ['FILL', 'FIT', 'CROP', 'TILE'];
 			validModes.forEach(mode => {

@@ -77,7 +77,7 @@ This guide provides detailed documentation for each tool, including when to use 
 | | `figma_set_fills` | Set fill colors | Local / Cloud |
 | | `figma_set_strokes` | Set stroke colors | Local / Cloud |
 | | `figma_create_child` | Create child node | Local / Cloud |
-| **🖼️ Image** | `figma_set_image_fill` | Set image fill on nodes | Local / Cloud |
+| **🖼️ Image** | `figma_set_image_fill` | Set image fill on nodes | Local |
 | **🔍 Accessibility** | `figma_lint_design` | 14 WCAG checks with AA/best-practice level tagging | Local / Cloud |
 | | `figma_audit_component_accessibility` | Deep component scorecard: states, focus, color-blind simulation | Local / Cloud |
 | | `figma_scan_code_accessibility` | Scan HTML with axe-core (104 rules): ARIA, labels, landmarks, semantics | Local / Cloud |
@@ -2421,7 +2421,7 @@ figma_get_annotation_categories()
 
 ### `figma_set_image_fill`
 
-Set an image fill on one or more Figma nodes from an absolute local file path. The local MCP server reads the file bytes and sends them to the Desktop Bridge plugin over a binary WebSocket payload.
+Set an image fill on one or more Figma nodes from an absolute local file path. The local MCP server reads the file bytes and sends them to the Desktop Bridge plugin over a binary WebSocket payload. Do not pass base64, data URLs, `imageData`, or raw byte arrays.
 
 **Mode:** Local Desktop Bridge
 
@@ -2441,7 +2441,7 @@ figma_set_image_fill({
 
 **Parameters:**
 - `nodeIds` (required): Array of node IDs to apply the image fill to
-- `filePath` (required): Absolute local file path to a JPEG or PNG image
+- `filePath` (required): Absolute local file path to a JPEG or PNG image. This is the only accepted image source.
 - `scaleMode` (optional): How the image fills the node — `"FILL"` (default), `"FIT"`, `"CROP"`, or `"TILE"`
 
 **Returns:**

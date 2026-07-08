@@ -1805,14 +1805,20 @@ After instantiating components, use figma_take_screenshot to verify the result l
 	// Tool: Set Image Fill on nodes
 	server.tool(
 		"figma_set_image_fill",
-		"Set an image fill on one or more Figma nodes from a local image file path. The local MCP server reads the file bytes and sends them to the Desktop Bridge plugin over a binary WebSocket payload. Requires local Desktop Bridge plugin.",
+		"Set an image fill on one or more Figma nodes from a local image file path only. Do not pass base64, data URLs, imageData, or raw byte arrays. The local MCP server reads the file bytes and sends them to the Desktop Bridge plugin over a binary WebSocket payload. Requires local Desktop Bridge plugin.",
 		{
 			nodeIds: z.array(z.string()).describe("Array of node IDs to apply the image fill to"),
-			filePath: z.string().describe("Absolute local file path to a JPEG or PNG image"),
+			filePath: z.string().describe("Absolute local file path to a JPEG or PNG image. This is the only accepted image source; base64/data URLs/imageData are rejected."),
 			scaleMode: z.enum(["FILL", "FIT", "CROP", "TILE"]).optional().describe("How the image fills the node (default: FILL)"),
 		},
-		async ({ nodeIds, filePath, scaleMode }) => {
+		async (params: any) => {
 			try {
+				const legacyFields = ["imageData", "base64", "dataUrl", "dataURL", "bytes"].filter((field) => field in params);
+				if (legacyFields.length > 0) {
+					throw new Error(`figma_set_image_fill accepts filePath only. Do not pass ${legacyFields.join(", ")}; save the image locally and pass its absolute filePath.`);
+				}
+
+				const { nodeIds, filePath, scaleMode } = params;
 				const connector = await getDesktopConnector();
 				const result = await connector.setImageFill(nodeIds, filePath, scaleMode || "FILL");
 
