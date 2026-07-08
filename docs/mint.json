@@ -80,6 +80,7 @@
       "pages": [
         "tools",
         "architecture",
+        "implementation-principles",
         "security",
         "reconstruction-format",
         "oauth-setup",
@@ -96,4 +97,3 @@
   },
   "css": "/custom.css"
 }
-
