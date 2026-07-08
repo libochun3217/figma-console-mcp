@@ -1,5 +1,7 @@
 # Figma Console MCP Server
 
+> 🇨🇳 **中文用户：** [查看中文版 README](README.zh-CN.md)
+
 [![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io/)
 [![npm](https://img.shields.io/npm/v/figma-console-mcp)](https://www.npmjs.com/package/figma-console-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
