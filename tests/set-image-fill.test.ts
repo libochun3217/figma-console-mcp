@@ -12,18 +12,21 @@ describe('figma_set_image_fill', () => {
 
 	describe('plugin handler (SET_IMAGE_FILL)', () => {
 		it('should decode image bytes and create image fill', () => {
-			// The plugin handler expects { type: 'SET_IMAGE_FILL', imageBytes: number[], nodeIds: string[], scaleMode: string }
+			// The plugin handler expects { type: 'SET_IMAGE_FILL', imageBytes: ArrayBuffer, nodeIds: string[], scaleMode: string }
+			const imageBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47]).buffer;
 			const message = {
 				type: 'SET_IMAGE_FILL',
 				requestId: 'test_1',
-				imageBytes: [0x89, 0x50, 0x4E, 0x47], // PNG header bytes
+				imageBytes,
+				imageByteLength: imageBytes.byteLength,
 				nodeIds: ['1:2'],
 				scaleMode: 'FILL',
 			};
 
 			// Validate message structure
 			expect(message.type).toBe('SET_IMAGE_FILL');
-			expect(message.imageBytes).toBeInstanceOf(Array);
+			expect(message.imageBytes).toBeInstanceOf(ArrayBuffer);
+			expect(message.imageByteLength).toBe(4);
 			expect(message.nodeIds).toHaveLength(1);
 			expect(message.scaleMode).toBe('FILL');
 		});
@@ -59,7 +62,7 @@ describe('figma_set_image_fill', () => {
 
 	describe('WebSocketConnector.setImageFill', () => {
 		it('should send SET_IMAGE_FILL command with correct params', async () => {
-			const mockSendCommand = jest.fn().mockResolvedValue({
+			const mockSendCommandWithBinary = jest.fn().mockResolvedValue({
 				success: true,
 				imageHash: 'abc123',
 				updatedCount: 2,
@@ -70,15 +73,18 @@ describe('figma_set_image_fill', () => {
 			});
 
 			// Simulate WebSocketConnector.setImageFill
-			const setImageFill = async (nodeIds: string[], imageData: string, scaleMode = 'FILL') => {
-				return mockSendCommand('SET_IMAGE_FILL', { nodeIds, imageData, scaleMode }, 60000);
+			const setImageFill = async (nodeIds: string[], filePath: string, scaleMode = 'FILL') => {
+				const imageBytes = Buffer.from([0x89, 0x50, 0x4E, 0x47]);
+				return mockSendCommandWithBinary('SET_IMAGE_FILL', { nodeIds, filePath, scaleMode }, imageBytes, { name: 'imageBytes', filePath }, 60000);
 			};
 
-			const result = await setImageFill(['1:2', '3:4'], 'base64data', 'FILL');
+			const result = await setImageFill(['1:2', '3:4'], '/tmp/hero.png', 'FILL');
 
-			expect(mockSendCommand).toHaveBeenCalledWith(
+			expect(mockSendCommandWithBinary).toHaveBeenCalledWith(
 				'SET_IMAGE_FILL',
-				{ nodeIds: ['1:2', '3:4'], imageData: 'base64data', scaleMode: 'FILL' },
+				{ nodeIds: ['1:2', '3:4'], filePath: '/tmp/hero.png', scaleMode: 'FILL' },
+				expect.any(Buffer),
+				{ name: 'imageBytes', filePath: '/tmp/hero.png' },
 				60000,
 			);
 			expect(result.success).toBe(true);
@@ -87,17 +93,19 @@ describe('figma_set_image_fill', () => {
 		});
 
 		it('should use 60s timeout for large images', async () => {
-			const mockSendCommand = jest.fn().mockResolvedValue({ success: true });
+			const mockSendCommandWithBinary = jest.fn().mockResolvedValue({ success: true });
 
-			const setImageFill = async (nodeIds: string[], imageData: string, scaleMode = 'FILL') => {
-				return mockSendCommand('SET_IMAGE_FILL', { nodeIds, imageData, scaleMode }, 60000);
+			const setImageFill = async (nodeIds: string[], filePath: string, scaleMode = 'FILL') => {
+				return mockSendCommandWithBinary('SET_IMAGE_FILL', { nodeIds, filePath, scaleMode }, Buffer.alloc(4), { name: 'imageBytes', filePath }, 60000);
 			};
 
-			await setImageFill(['1:2'], 'largeBase64Data');
+			await setImageFill(['1:2'], '/tmp/large.png');
 
 			// Verify 60s timeout (vs default 15s)
-			expect(mockSendCommand).toHaveBeenCalledWith(
+			expect(mockSendCommandWithBinary).toHaveBeenCalledWith(
 				'SET_IMAGE_FILL',
+				expect.anything(),
+				expect.any(Buffer),
 				expect.anything(),
 				60000,
 			);
@@ -109,27 +117,12 @@ describe('figma_set_image_fill', () => {
 	// ========================================================================
 
 	describe('CloudWebSocketConnector.setImageFill', () => {
-		it('should route through relay with 60s timeout', async () => {
-			const mockSendCommand = jest.fn().mockResolvedValue({
-				success: true,
-				imageHash: 'hash456',
-				updatedCount: 1,
-				nodes: [{ id: '1:2', name: 'Node' }],
-			});
-
-			// Simulate CloudWebSocketConnector.setImageFill
-			const setImageFill = async (nodeIds: string[], imageData: string, scaleMode = 'FILL') => {
-				return mockSendCommand('SET_IMAGE_FILL', { nodeIds, imageData, scaleMode }, 60000);
+		it('should reject local file paths because cloud mode cannot read local disk', async () => {
+			const setImageFill = async (_nodeIds: string[], _filePath: string, _scaleMode = 'FILL') => {
+				throw new Error('figma_set_image_fill with filePath is only supported in local Desktop Bridge mode');
 			};
 
-			const result = await setImageFill(['1:2'], 'base64', 'CROP');
-
-			expect(mockSendCommand).toHaveBeenCalledWith(
-				'SET_IMAGE_FILL',
-				{ nodeIds: ['1:2'], imageData: 'base64', scaleMode: 'CROP' },
-				60000,
-			);
-			expect(result.success).toBe(true);
+			await expect(setImageFill(['1:2'], '/tmp/hero.png', 'CROP')).rejects.toThrow('local Desktop Bridge mode');
 		});
 	});
 
@@ -141,20 +134,20 @@ describe('figma_set_image_fill', () => {
 		it('should require nodeIds as string array', () => {
 			const validParams = {
 				nodeIds: ['1:2', '3:4'],
-				imageData: 'base64string',
+				filePath: '/tmp/hero.png',
 			};
 
 			expect(Array.isArray(validParams.nodeIds)).toBe(true);
 			expect(validParams.nodeIds.every((id: string) => typeof id === 'string')).toBe(true);
 		});
 
-		it('should require imageData as string', () => {
+		it('should require filePath as string', () => {
 			const validParams = {
 				nodeIds: ['1:2'],
-				imageData: 'iVBORw0KGgoAAAANSUhEUg==', // valid base64
+				filePath: '/tmp/hero.png',
 			};
 
-			expect(typeof validParams.imageData).toBe('string');
+			expect(typeof validParams.filePath).toBe('string');
 		});
 
 		it('should accept valid scaleMode values', () => {
@@ -167,7 +160,7 @@ describe('figma_set_image_fill', () => {
 		it('should treat scaleMode as optional', () => {
 			const paramsWithout = {
 				nodeIds: ['1:2'],
-				imageData: 'base64',
+				filePath: '/tmp/hero.png',
 			};
 
 			// scaleMode is optional — should not be required
@@ -186,11 +179,11 @@ describe('figma_set_image_fill', () => {
 				error: 'Node not found: 99:99',
 			});
 
-			const setImageFill = async (nodeIds: string[], imageData: string, scaleMode = 'FILL') => {
-				return mockSendCommand('SET_IMAGE_FILL', { nodeIds, imageData, scaleMode }, 60000);
+			const setImageFill = async (nodeIds: string[], filePath: string, scaleMode = 'FILL') => {
+				return mockSendCommand('SET_IMAGE_FILL', { nodeIds, filePath, scaleMode }, 60000);
 			};
 
-			const result = await setImageFill(['99:99'], 'base64');
+			const result = await setImageFill(['99:99'], '/tmp/missing.png');
 
 			expect(result.success).toBe(false);
 			expect(result.error).toContain('Node not found');
@@ -201,11 +194,11 @@ describe('figma_set_image_fill', () => {
 				new Error('Command SET_IMAGE_FILL timed out after 60000ms'),
 			);
 
-			const setImageFill = async (nodeIds: string[], imageData: string, scaleMode = 'FILL') => {
-				return mockSendCommand('SET_IMAGE_FILL', { nodeIds, imageData, scaleMode }, 60000);
+			const setImageFill = async (nodeIds: string[], filePath: string, scaleMode = 'FILL') => {
+				return mockSendCommand('SET_IMAGE_FILL', { nodeIds, filePath, scaleMode }, 60000);
 			};
 
-			await expect(setImageFill(['1:2'], 'very-large-base64'))
+			await expect(setImageFill(['1:2'], '/tmp/very-large.png'))
 				.rejects.toThrow('timed out');
 		});
 
@@ -225,23 +218,25 @@ describe('figma_set_image_fill', () => {
 	describe('ui.html method map', () => {
 		it('should map SET_IMAGE_FILL to window.setImageFill', () => {
 			// The method map in ui.html routes 'SET_IMAGE_FILL' to:
-			// function(params) { return window.setImageFill(params.nodeIds || params.nodeId, params.imageData, params.scaleMode); }
+			// function(params) { return window.setImageFill(params.nodeIds || params.nodeId, params.filePath, params.scaleMode, params._binaryPayload); }
 			const params = {
 				nodeIds: ['1:2', '3:4'],
-				imageData: 'base64string',
+				filePath: '/tmp/hero.png',
 				scaleMode: 'TILE',
+				_binaryPayload: { transferId: 'abc', name: 'imageBytes', byteLength: 4 },
 			};
 
 			// Verify params are correctly structured for the handler
 			expect(params.nodeIds).toBeDefined();
-			expect(params.imageData).toBeDefined();
+			expect(params.filePath).toBeDefined();
+			expect(params._binaryPayload).toBeDefined();
 			expect(params.scaleMode).toBe('TILE');
 		});
 
 		it('should fall back to nodeId when nodeIds not provided', () => {
 			const params = {
 				nodeId: '1:2',
-				imageData: 'base64string',
+				filePath: '/tmp/hero.png',
 			};
 
 			// Handler uses: params.nodeIds || params.nodeId

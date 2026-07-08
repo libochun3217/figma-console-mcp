@@ -2875,14 +2875,17 @@ figma.ui.onmessage = async (msg) => {
 
   // ============================================================================
   // SET_IMAGE_FILL - Set an image fill on one or more nodes
-  // Receives raw image bytes (as Array) from ui.html which decodes base64
+  // Receives raw image bytes from ui.html as an ArrayBuffer
   // ============================================================================
   else if (msg.type === 'SET_IMAGE_FILL') {
     try {
-      console.log('🌉 [Desktop Bridge] Setting image fill, bytes:', msg.imageBytes.length);
+      var byteLength = msg.imageByteLength || (msg.imageBytes ? msg.imageBytes.byteLength || msg.imageBytes.length : 0);
+      console.log('🌉 [Desktop Bridge] Setting image fill, bytes:', byteLength);
 
-      // Convert the plain array back to Uint8Array
-      var bytes = new Uint8Array(msg.imageBytes);
+      // Convert the transferred binary payload into Uint8Array for figma.createImage().
+      var bytes = msg.imageBytes instanceof ArrayBuffer
+        ? new Uint8Array(msg.imageBytes)
+        : new Uint8Array(msg.imageBytes);
 
       // Create the image in Figma
       var image = figma.createImage(bytes);

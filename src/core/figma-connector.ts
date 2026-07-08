@@ -73,7 +73,7 @@ export interface IFigmaConnector {
   setInstanceProperties(nodeId: string, properties: any): Promise<any>;
 
   // Image fill
-  setImageFill(nodeIds: string[], imageData: string, scaleMode?: string): Promise<any>;
+  setImageFill(nodeIds: string[], filePath: string, scaleMode?: string): Promise<any>;
 
   // Design lint
   lintDesign(nodeId?: string, rules?: string[], maxDepth?: number, maxFindings?: number): Promise<any>;

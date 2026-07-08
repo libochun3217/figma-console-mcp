@@ -10,6 +10,8 @@
 
 > **Your design system as an API.** Model Context Protocol server that bridges design and development—giving AI assistants complete access to Figma for **extraction**, **creation**, **debugging**, and **bidirectional token sync**.
 
+> **Fork note:** This repository is a local fork/customization of Figma Console MCP. It keeps the original Desktop Bridge architecture and adds a local image-transfer optimization: `figma_set_image_fill` now accepts a local `filePath`, the local MCP server reads the file bytes, and the Desktop Bridge receives them over a WebSocket binary payload before passing an `ArrayBuffer` to `figma.createImage()`. This avoids base64 payload inflation and JSON byte arrays, and is available only in Local Desktop Bridge mode.
+
 > **🆕 Bidirectional Token Sync v2 + DTCG 2025.10 (v1.34.0):** `figma_import_tokens` now applies the *whole* diff plan — creates, renames, alias re-targeting, and replace-gated deletes — for a true code→Figma round-trip; exports speak DTCG 2025.10 on request (opt-in, legacy default byte-identical); scopes/codeSyntax round-trip; `figma_setup_design_tokens` accepts alias values; and the new `figma_create_component_set` builds a full variant set from an axes matrix in one call. **Plugin re-import required** (`code.js` + `ui.html` changed). [See what's new →](CHANGELOG.md#1340---2026-07-03)
 
 ## What is this?

@@ -96,6 +96,11 @@ interface PendingRequest {
   targetFileKey: string;
 }
 
+interface BinaryPayloadOptions {
+  name: string;
+  filePath?: string;
+}
+
 export interface ConnectedFileInfo {
   fileName: string;
   fileKey: string | null;
@@ -781,6 +786,91 @@ export class FigmaWebSocketServer extends EventEmitter {
       client.lastActivity = Date.now();
 
       logger.debug({ id, method, fileKey }, 'Sent WebSocket command');
+    });
+  }
+
+  /**
+   * Send a command followed by a binary WebSocket payload.
+   * The JSON command carries only transfer metadata; the bytes travel in a
+   * separate binary frame so large local files do not become base64 or JSON arrays.
+   */
+  sendCommandWithBinary(
+    method: string,
+    params: Record<string, any> = {},
+    binaryPayload: Buffer,
+    binaryOptions: BinaryPayloadOptions,
+    timeoutMs = 15000,
+    targetFileKey?: string,
+  ): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const fileKey = targetFileKey || this._activeFileKey;
+
+      if (!fileKey) {
+        reject(new Error('No active file connected. Make sure the Desktop Bridge plugin is open in Figma.'));
+        return;
+      }
+
+      const client = this.clients.get(fileKey);
+      if (!client || client.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('No WebSocket client connected. Make sure the Desktop Bridge plugin is open in Figma.'));
+        return;
+      }
+
+      const id = `ws_${++this.requestIdCounter}_${Date.now()}`;
+      const transferId = `${id}_binary`;
+
+      const timeoutId = setTimeout(() => {
+        if (this.pendingRequests.has(id)) {
+          this.pendingRequests.delete(id);
+          reject(new Error(`WebSocket command ${method} timed out after ${timeoutMs}ms`));
+        }
+      }, timeoutMs);
+
+      this.pendingRequests.set(id, {
+        resolve,
+        reject,
+        method,
+        timeoutId,
+        createdAt: Date.now(),
+        targetFileKey: fileKey,
+      });
+
+      const message = JSON.stringify({
+        id,
+        method,
+        params: {
+          ...params,
+          _binaryPayload: {
+            transferId,
+            name: binaryOptions.name,
+            byteLength: binaryPayload.byteLength,
+            filePath: binaryOptions.filePath,
+          },
+        },
+      });
+
+      const header = Buffer.from(JSON.stringify({
+        type: 'MCP_BINARY_PAYLOAD',
+        transferId,
+        name: binaryOptions.name,
+        byteLength: binaryPayload.byteLength,
+      }), 'utf8');
+      const headerLength = Buffer.allocUnsafe(4);
+      headerLength.writeUInt32BE(header.byteLength, 0);
+      const frame = Buffer.concat([headerLength, header, binaryPayload]);
+
+      try {
+        client.ws.send(message);
+        client.ws.send(frame);
+      } catch (sendError) {
+        this.pendingRequests.delete(id);
+        clearTimeout(timeoutId);
+        reject(new Error(`Failed to send WebSocket command ${method}: ${sendError instanceof Error ? sendError.message : String(sendError)}`));
+        return;
+      }
+      client.lastActivity = Date.now();
+
+      logger.debug({ id, method, fileKey, byteLength: binaryPayload.byteLength }, 'Sent WebSocket command with binary payload');
     });
   }
 

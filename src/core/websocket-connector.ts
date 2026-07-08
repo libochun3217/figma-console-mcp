@@ -11,6 +11,7 @@
 import type { IFigmaConnector } from './figma-connector.js';
 import type { FigmaWebSocketServer } from './websocket-server.js';
 import { createChildLogger } from './logger.js';
+import { readFileSync } from 'fs';
 
 const logger = createChildLogger({ component: 'websocket-connector' });
 
@@ -367,8 +368,15 @@ export class WebSocketConnector implements IFigmaConnector {
   // Image fill
   // ============================================================================
 
-  async setImageFill(nodeIds: string[], imageData: string, scaleMode = 'FILL'): Promise<any> {
-    return this.wsServer.sendCommand('SET_IMAGE_FILL', { nodeIds, imageData, scaleMode }, 60000);
+  async setImageFill(nodeIds: string[], filePath: string, scaleMode = 'FILL'): Promise<any> {
+    const imageBytes = readFileSync(filePath);
+    return this.wsServer.sendCommandWithBinary(
+      'SET_IMAGE_FILL',
+      { nodeIds, filePath, scaleMode },
+      imageBytes,
+      { name: 'imageBytes', filePath },
+      60000,
+    );
   }
 
   // ============================================================================

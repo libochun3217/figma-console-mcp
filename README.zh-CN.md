@@ -8,6 +8,10 @@
 
 > **把你的设计系统变成 API。** 这是一个连接设计与开发的 Model Context Protocol 服务器，让 AI 助手能够完整访问 Figma，支持**提取**、**创建**、**调试**以及**双向 Token 同步**。
 
+> **Fork 说明：** 本仓库是基于 Figma Console MCP 原项目 fork 后的本地定制版本，保留原项目的 Desktop Bridge、工具注册和 Figma Plugin API 能力，并在本地 MCP server 与 Figma Desktop Bridge 之间增加了针对大文件/图片传输的优化。
+
+> **本次优化：** `figma_set_image_fill` 不再要求调用方传入 base64 图片内容，而是传入本地文件路径，例如 `/Users/charlee/code/math_adventure/figma-assets/book.png`。本地 MCP server 读取文件字节后，通过 WebSocket 二进制帧发送到 Desktop Bridge UI，再以 `ArrayBuffer` 传给 Figma 插件主线程调用 `figma.createImage()`。这样避免了 base64 膨胀和 JSON 大数组传输，减少内存占用，也让 Bridge 消息里只保留路径和二进制传输元数据。该能力仅适用于 Local Desktop Bridge 模式，因为云端 relay 无法读取用户本机文件。
+
 > **🆕 双向 Token 同步 v2 + DTCG 2025.10（v1.34.0）：** `figma_import_tokens` 现在会执行*完整* diff 计划，包括创建、重命名、别名重新指向以及受 replace 策略保护的删除，实现真正的代码到 Figma 往返同步；导出可按需输出 DTCG 2025.10（可选启用，默认 legacy 输出保持字节级一致）；支持 scopes/codeSyntax 往返；`figma_setup_design_tokens` 支持别名值；新的 `figma_create_component_set` 可通过一次调用，根据轴矩阵创建完整变体集。**需要重新导入插件**（`code.js` + `ui.html` 有变化）。[查看更新内容 →](CHANGELOG.md#1340---2026-07-03)
 
 ## 这是什么？

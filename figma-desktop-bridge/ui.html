@@ -543,8 +543,71 @@
     window.__figmaComponentData = null;
     window.__figmaComponentRequests = new Map();
     window.__figmaPendingRequests = new Map();
+    window.__mcpBinaryPayloads = new Map();
+    window.__mcpBinaryWaiters = new Map();
 
     let requestIdCounter = 0;
+
+    function storeBinaryPayload(transferId, payload) {
+      var waiter = window.__mcpBinaryWaiters.get(transferId);
+      if (waiter) {
+        clearTimeout(waiter.timeoutId);
+        window.__mcpBinaryWaiters.delete(transferId);
+        waiter.resolve(payload);
+        return;
+      }
+      window.__mcpBinaryPayloads.set(transferId, payload);
+    }
+
+    function waitForBinaryPayload(meta, timeoutMs) {
+      if (!meta || !meta.transferId) {
+        return Promise.reject(new Error('Missing binary payload metadata'));
+      }
+      var cached = window.__mcpBinaryPayloads.get(meta.transferId);
+      if (cached) {
+        window.__mcpBinaryPayloads.delete(meta.transferId);
+        return Promise.resolve(cached);
+      }
+      return new Promise(function(resolve, reject) {
+        var timeoutId = setTimeout(function() {
+          window.__mcpBinaryWaiters.delete(meta.transferId);
+          reject(new Error('Timed out waiting for binary payload: ' + meta.transferId));
+        }, timeoutMs || 60000);
+        window.__mcpBinaryWaiters.set(meta.transferId, {
+          resolve: resolve,
+          reject: reject,
+          timeoutId: timeoutId
+        });
+      });
+    }
+
+    function handleBinaryWsMessage(data) {
+      var asArrayBuffer = data instanceof ArrayBuffer
+        ? Promise.resolve(data)
+        : (data && typeof data.arrayBuffer === 'function'
+          ? data.arrayBuffer()
+          : Promise.reject(new Error('Unsupported binary WebSocket payload')));
+
+      asArrayBuffer.then(function(buffer) {
+        var view = new DataView(buffer);
+        if (view.byteLength < 4) throw new Error('Binary payload frame too short');
+        var headerLength = view.getUint32(0, false);
+        var headerEnd = 4 + headerLength;
+        if (headerEnd > view.byteLength) throw new Error('Binary payload header exceeds frame length');
+        var headerBytes = new Uint8Array(buffer, 4, headerLength);
+        var header = JSON.parse(new TextDecoder().decode(headerBytes));
+        if (!header || header.type !== 'MCP_BINARY_PAYLOAD' || !header.transferId) {
+          throw new Error('Invalid binary payload header');
+        }
+        var payload = buffer.slice(headerEnd);
+        if (typeof header.byteLength === 'number' && payload.byteLength !== header.byteLength) {
+          throw new Error('Binary payload length mismatch');
+        }
+        storeBinaryPayload(header.transferId, payload);
+      }).catch(function(error) {
+        console.error('[MCP Bridge] Failed to process binary WebSocket message:', error);
+      });
+    }
 
     // Status inputs owned by the message handler at the bottom of this file.
     // bridgeError flips true on a code.js ERROR message; a later successful
@@ -664,7 +727,11 @@
           }
         }
 
-        parent.postMessage({ pluginMessage: message }, '*');
+        if (message.imageBytes instanceof ArrayBuffer) {
+          parent.postMessage({ pluginMessage: message }, '*', [message.imageBytes]);
+        } else {
+          parent.postMessage({ pluginMessage: message }, '*');
+        }
         console.log('[MCP Bridge] Sent:', type);
       });
     };
@@ -919,21 +986,19 @@
         .catch(function(err) { return { success: false, error: err.message || String(err) }; });
     };
 
-    // Set image fill on nodes — decodes base64 in browser context (atob available here)
-    // then sends raw bytes to plugin where figma.createImage() is called
-    window.setImageFill = (nodeIds, imageData, scaleMode) => {
-      // Decode base64 to Uint8Array in browser context where atob() is available
-      var binaryStr = atob(imageData);
-      var bytes = new Uint8Array(binaryStr.length);
-      for (var i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-      // Send as plain Array (postMessage can't always transfer typed arrays cleanly)
-      return window.sendPluginCommand('SET_IMAGE_FILL', {
-        nodeIds: Array.isArray(nodeIds) ? nodeIds : [nodeIds],
-        imageBytes: Array.from(bytes),
-        scaleMode: scaleMode || 'FILL'
-      }, 60000)
+    // Set image fill on nodes — receives bytes from the MCP server as a WebSocket
+    // binary frame, then forwards an ArrayBuffer to code.js for figma.createImage().
+    window.setImageFill = (nodeIds, filePath, scaleMode, binaryMeta) => {
+      return waitForBinaryPayload(binaryMeta, 60000)
+        .then(function(imageBuffer) {
+          return window.sendPluginCommand('SET_IMAGE_FILL', {
+            nodeIds: Array.isArray(nodeIds) ? nodeIds : [nodeIds],
+            imageBytes: imageBuffer,
+            imageByteLength: imageBuffer.byteLength,
+            filePath: filePath,
+            scaleMode: scaleMode || 'FILL'
+          }, 60000);
+        })
         .catch(function(err) { return { success: false, error: err.message || String(err) }; });
     };
 
@@ -1082,7 +1147,7 @@
         'SET_TEXT_CONTENT': function(params) { return window.setTextContent(params.nodeId, params.text, params); },
         'CREATE_CHILD_NODE': function(params) { return window.createChildNode(params.parentId, params.nodeType, params.properties); },
         'CAPTURE_SCREENSHOT': function(params) { return window.captureScreenshot(params.nodeId, params); },
-        'SET_IMAGE_FILL': function(params) { return window.setImageFill(params.nodeIds || params.nodeId, params.imageData, params.scaleMode); },
+        'SET_IMAGE_FILL': function(params) { return window.setImageFill(params.nodeIds || params.nodeId, params.filePath, params.scaleMode, params._binaryPayload); },
         'SET_INSTANCE_PROPERTIES': function(params) { return window.setInstanceProperties(params.nodeId, params.properties); },
         'LINT_DESIGN': function(params) { return window.lintDesign(params.nodeId, params.rules, params.maxDepth, params.maxFindings); },
         'AUDIT_COMPONENT_ACCESSIBILITY': function(params) { return window.auditComponentAccessibility(params.nodeId, params.targetSize); },
@@ -1429,8 +1494,14 @@
        * Attach message/close/error handlers to an established WebSocket connection.
        */
       function attachWsHandlers(activeWs, port) {
+        activeWs.binaryType = 'arraybuffer';
         activeWs.onmessage = function(event) {
           try {
+            if (typeof event.data !== 'string') {
+              handleBinaryWsMessage(event.data);
+              return;
+            }
+
             var message = JSON.parse(event.data);
 
             // Handle server identity messages

@@ -325,8 +325,8 @@ export class CloudWebSocketConnector implements IFigmaConnector {
 	// Image fill
 	// ============================================================================
 
-	async setImageFill(nodeIds: string[], imageData: string, scaleMode = 'FILL'): Promise<any> {
-		return this.sendCommand('SET_IMAGE_FILL', { nodeIds, imageData, scaleMode }, 60000);
+	async setImageFill(_nodeIds: string[], _filePath: string, _scaleMode = 'FILL'): Promise<any> {
+		throw new Error('figma_set_image_fill with filePath is only supported in local Desktop Bridge mode because the MCP server must read the local file bytes.');
 	}
 
 	// ============================================================================

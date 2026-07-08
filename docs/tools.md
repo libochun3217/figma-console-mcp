@@ -2421,9 +2421,9 @@ figma_get_annotation_categories()
 
 ### `figma_set_image_fill`
 
-Set an image fill on one or more Figma nodes. Accepts base64-encoded image data or (in Local Mode) an absolute file path.
+Set an image fill on one or more Figma nodes from an absolute local file path. The local MCP server reads the file bytes and sends them to the Desktop Bridge plugin over a binary WebSocket payload.
 
-**Mode:** Local / Cloud
+**Mode:** Local Desktop Bridge
 
 **When to Use:**
 - Applying photos, illustrations, or textures to frames and shapes
@@ -2432,24 +2432,16 @@ Set an image fill on one or more Figma nodes. Accepts base64-encoded image data 
 
 **Usage:**
 ```javascript
-// Base64 image data
-figma_set_image_fill({
-  nodeIds: ["123:456", "789:012"],
-  imageData: "iVBORw0KGgo...",  // base64-encoded PNG or JPEG
-  scaleMode: "FILL"
-})
-
-// File path (Local Mode only)
 figma_set_image_fill({
   nodeIds: ["123:456"],
-  imageData: "/tmp/hero-image.jpg",
+  filePath: "/tmp/hero-image.jpg",
   scaleMode: "FIT"
 })
 ```
 
 **Parameters:**
 - `nodeIds` (required): Array of node IDs to apply the image fill to
-- `imageData` (required): Base64-encoded image data (JPEG/PNG), or an absolute file path starting with `/` (Local Mode only)
+- `filePath` (required): Absolute local file path to a JPEG or PNG image
 - `scaleMode` (optional): How the image fills the node — `"FILL"` (default), `"FIT"`, `"CROP"`, or `"TILE"`
 
 **Returns:**
